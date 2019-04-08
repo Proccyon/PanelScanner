@@ -10,52 +10,76 @@ import sys,os
 def MakePath(FileName,FileType):
     return os.path.dirname(sys.argv[0])+r'/ '[0] +FileName+"."+"FileType"
 
+    #Gets an image from the given path
+    #Returns an array of pixels and R,G,B separately
+def GetImage(URL):
+    RawImage = Image.open(URL)
+    Array = np.asarray(RawImage)
+    return Array,Array[:,:,0],Array[:,:,1],Array[:,:,2]
+    
+#Normalizes and crops an image
+def TransformArray(Array,Xmin,Xmax):
+    return (1- Array / 255)[:,Xmin:Xmax]
+    
+def IsMinimum(y0,yLeft,yRight):
+    return yLeft > y0 and yRight>y0
+
+#Finds the first local minimum going from Xstart to right/left
+def FindLocalMin(Array,Xstart,Direction=1):
+    if(Direction==1):
+        Xend = len(Array)
+    else:
+        Xend = 0
+        Direction=-1
+        
+    for i in np.arange(Xstart,Xend-Direction,step=Direction):
+        y0 = Array[i]
+        yLeft = Array[i-1]
+        yRight = Array[i+1]
+        if(IsMinimum(y0,yLeft,yRight)):
+            return i
+        
+    return None
 #-----GlobalFunctions-----#
 
 
 #-----Pannel-----#
 class Pannel:
-    def __init__(self,URL,Xmin,Xmax,PanelWidth,PanelPixels,Axis=0,ColorName="Blue",FitDegree=13):
+    def __init__(self,URL,Xmin,Xmax,PanelWidth,PanelPixels,Axis=0,ColorName="Blue",FitDegree=13,DoPlot=False):
         self.URL = URL
-        self.Image, self.R,self.G,self.B = self.GetImage()
+        self.Image, self.R,self.G,self.B = GetImage(self.URL)
         self.Xmin,self.Xmax = Xmin,Xmax
         self.Axis = Axis
         self.ColorName = ColorName
         self.FitDegree = FitDegree
         self.LengthFactor = PanelWidth / PanelPixels #Pixels / cm
         
-    #Gets an image from the given path
-    #Returns an array of pixels and R,G,B separately
-    def GetImage(self):
-        RawImage = Image.open(self.URL)
-        Array = np.asarray(RawImage)
-        return Array,Array[:,:,0],Array[:,:,1],Array[:,:,2]
-
-    #Normalizes and crops the image
-    def TransformArray(self,ColorArray):
-        return (1- ColorArray / 255)[:,self.Xmin:self.Xmax]
-
-    #Fits the ColourProfile to a polynomial to the corrosion distance
-    #Returns Distance to the Left,Right and Total distance
-    #Also plots the fit and minima
-    def ColorFit(self,x,y,PlotFit=False):
-        FitParameters = np.polyfit(x,y,self.FitDegree)
-        ColorFit = np.poly1d(FitParameters)(x)
+        self.DoColorProfileMethod()
+        if(DoPlot):
+            self.PlotResults()
+      
+    def DoColorProfileMethod(self):
         
-        LeftMin = self.FindLocalMin(ColorFit,int((self.Xmin+self.Xmax)/2-self.Xmin),-1)
-        RightMin = self.FindLocalMin(ColorFit,int((self.Xmin+self.Xmax)/2-self.Xmin),+1)
-        Corrosion = RightMin - LeftMin
+        #Makes the color profile
+        self.ColorArray = TransformArray(self.B,self.Xmin,self.Xmax)
+        self.ColorProfile = np.average(self.ColorArray,axis=self.Axis)
+        self.x = np.arange(len(self.ColorProfile))    
         
-        if(PlotFit):
-            plt.plot(x,ColorFit,linestyle="--",label="Polynomial fit",color="black",alpha=1)
-        plt.axvline(x=LeftMin,linestyle="--",color="red",label="Corrosion distance",alpha=0.7)
-        plt.axvline(x=RightMin,linestyle="--",color="red")
+        #Fits a polynomial to the profile
+        FitParameters = np.polyfit(self.x,self.ColorProfile,self.FitDegree)
+        self.ColorFit = np.poly1d(FitParameters)(self.x)
         
-        return LeftMin,RightMin,Corrosion
+        #Finds the local minima of the fit
+        self.LeftMin = FindLocalMin(self.ColorFit,int((self.Xmin+self.Xmax)/2-self.Xmin),-1)
+        self.RightMin = FindLocalMin(self.ColorFit,int((self.Xmin+self.Xmax)/2-self.Xmin),+1)
         
-    #Titel, etc for Colour profile plot
-    def SetupPlot1(self):
+        #Calculates the corrosion
+        self.CorrosionPixels = self.RightMin - self.LeftMin
+        self.CorrosionCM = self.ConvertCorrosion()
+    
+    def PlotResults(self):
         
+        #Color Profile Plot
         plt.figure(figsize=(7,7))
         
         plt.subplot(1,2,1)
@@ -66,57 +90,26 @@ class Pannel:
         
         plt.xlim(xmin=0,xmax=self.Xmax-self.Xmin)
         
-    #Titel, etc for Image plot
-    def SetupPlot2(self):
+        plt.plot(self.x,self.ColorProfile,label="Color Average")
+        plt.plot(self.x,self.ColorFit,linestyle="--",label="Polynomial fit",color="black",alpha=1)
+        plt.axvline(x=self.LeftMin,linestyle="--",color="red",label="Corrosion distance",alpha=0.7)
+        plt.axvline(x=self.RightMin,linestyle="--",color="red")
+        
+        plt.legend()
+        
+        #Image plot
         plt.subplot(1,2,2)
         plt.title("Blue filter of pannel image")
-
-    def IsMinimum(self,y0,yLeft,yRight):
-        return yLeft > y0 and yRight>y0
-
-    #Finds the first local minimum going from Xstart to right/left
-    def FindLocalMin(self,Array,Xstart,Direction=1):
-        if(Direction==1):
-            Xend = len(Array)
-        else:
-            Xend = 0
-            Direction=-1
-        
-        for i in np.arange(Xstart,Xend-Direction,step=Direction):
-            y0 = Array[i]
-            yLeft = Array[i-1]
-            yRight = Array[i+1]
-            if(self.IsMinimum(y0,yLeft,yRight)):
-                return i
-        
-        return None
-        
+        plt.imshow(self.ColorArray,cmap="Blues")
+        plt.colorbar()
+              
     def PrintResults(self):
         print("CorrosionDistance: "+str(self.CorrosionCM)+"cm")
 
     #Calculates corrosion from pixels to cm
-    def CalcCorrosion(self):
+    def ConvertCorrosion(self):
         return round(self.CorrosionPixels * self.LengthFactor,2)
-        
-    #Finds Corrosion distance and plots the colour profile and Image
-    def MakeColorProfile(self):
-        ColorArray = self.TransformArray(self.B)
-        
-        self.ColorProfile = np.average(ColorArray,axis=self.Axis)
-        x = np.arange(len(self.ColorProfile))        
-        
-        self.SetupPlot1()
-        plt.plot(x,self.ColorProfile,label="Color Average")
-        self.LeftMin,self.RightMin,self.CorrosionPixels = self.ColorFit(x,self.ColorProfile)
-        self.CorrosionCM = self.CalcCorrosion()
-        plt.legend()
-        
-        self.SetupPlot2()
-        plt.imshow(ColorArray,cmap="Blues")
-        plt.colorbar()
-
-        self.PrintResults()
-        
+    
     def ExportToExcel(self):
         Path = MakePath("Results","xls")
     
@@ -151,7 +144,6 @@ Xmin = 1500
 Xmax = 2500
 
 Pannel1 = Pannel(URL,Xmin,Xmax,PannelWidth,PannelPixels)
-Pannel1.MakeColorProfile()
 
 plt.show()
 #-----Main-----#
