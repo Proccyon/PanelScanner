@@ -8,10 +8,35 @@ import sys,os
 
 #-----GlobalFunctions-----#
 def MakePath(FileName,FileType):
-    return os.path.dirname(sys.argv[0])+r'/ '[0] +FileName+"."+"FileType"
+    return os.path.dirname(sys.argv[0])+r'/ '[0] +str(FileName)+"."+FileType
 
-    #Gets an image from the given path
-    #Returns an array of pixels and R,G,B separately
+def MakeFolderPath(FolderName):
+    return os.path.dirname(sys.argv[0])+r'\ '[0] +FolderName+r'\ '[0]
+  
+def FindImagePaths(FolderName="Panel_Input"):
+    FolderPath = MakeFolderPath(FolderName)
+    UrlList = os.listdir(FolderPath)
+    
+    NewUrlList = []
+    NameList = []
+    for Url in UrlList:
+        if(".jpg" in Url or ".png" in Url):
+            NewUrlList.append(FolderPath + r'\ '[0] +Url)
+            NameList.append(Url)
+    return NewUrlList,NameList
+   
+def ReadCounter():
+    File = open(MakePath("Counter","txt"),"r")
+    FileCounter = float(File.read())
+    File.close()
+    
+    File = open(MakePath("Counter","txt"),"w")
+    File.write(str(round(FileCounter+0.01,2)))
+    File.close()
+    return FileCounter     
+              
+#Gets an image from the given path
+#Returns an array of pixels and R,G,B separately
 def GetImage(URL):
     RawImage = Image.open(URL)
     Array = np.asarray(RawImage)
@@ -42,9 +67,57 @@ def FindLocalMin(Array,Xstart,Direction=1):
     return None
 #-----GlobalFunctions-----#
 
+#-----PanelSorter-----#
 
-#-----Pannel-----#
-class Pannel:
+class PanelSorter:
+    def __init__(self,Xmin,Xmax,PanelWidth,PanelPixels):
+        self.Xmin = Xmin
+        self.Xmax = Xmax
+        self.PanelWidth = PanelWidth
+        self.PanelPixels = PanelPixels
+        
+        self.CreatePanelList()
+        self.WriteToExcel()
+        
+    def CreatePanelList(self):
+        UrlList,self.NameList = FindImagePaths()
+        
+        self.PanelList = []
+        for Url in UrlList:
+            self.PanelList.append(Panel(Url,self.Xmin,self.Xmax,self.PanelWidth,self.PanelPixels))
+            
+    def WriteToExcel(self):
+        
+        Path = MakePath("PanelResults"+str(ReadCounter()),"xls")
+    
+        Book = xlwt.Workbook()
+        Sheet1 = Book.add_sheet("MainResults")
+        
+        BoldStyle = xlwt.XFStyle()
+        BoldStyle.bold = True
+        
+        Row0 = Sheet1.row(0)
+        Row0.write(0,"Panel Name",style=BoldStyle)
+        Row0.write(1,"Corrosion Distance",style=BoldStyle)
+        
+        Sheet1.col(0).width = 3500
+        Sheet1.col(1).width = 3500
+        
+        for i in range(len(self.PanelList)):
+            Sheet1.write(i+1,0,self.NameList[i])
+            Sheet1.write(i+1,1,str(self.PanelList[i].CorrosionCM)+"cm")
+            
+        Book.save(Path)
+        
+
+
+#-----PanelSorter-----#
+
+
+
+
+#-----Panel-----#
+class Panel:
     def __init__(self,URL,Xmin,Xmax,PanelWidth,PanelPixels,Axis=0,ColorName="Blue",FitDegree=13,DoPlot=False):
         self.URL = URL
         self.Image, self.R,self.G,self.B = GetImage(self.URL)
@@ -99,7 +172,7 @@ class Pannel:
         
         #Image plot
         plt.subplot(1,2,2)
-        plt.title("Blue filter of pannel image")
+        plt.title("Blue filter of panel image")
         plt.imshow(self.ColorArray,cmap="Blues")
         plt.colorbar()
               
@@ -110,40 +183,18 @@ class Pannel:
     def ConvertCorrosion(self):
         return round(self.CorrosionPixels * self.LengthFactor,2)
     
-    def ExportToExcel(self):
-        Path = MakePath("Results","xls")
-    
-        Book = xlwt.Workbook()
-        Sheet1 = Book.add_sheet("MainResults")
+#-----Panel-----#      
         
-        BoldStyle = xlwt.XFStyle()
-        BoldStyle.bold = True
-        
-        Row0 = Sheet1.row(0)
-        Row0.write(0,"Pannel Name",style=BoldStyle)
-        Row0.write(1,"Corrosion Distance",style=BoldStyle)
-        
-        Row1 = Sheet1.row(1)
-        Row1.write(0,Name)
-        Row1.write(1,self.CorrosionCM)
-        
-        
-  
-#-----Pannel-----#      
-        
-    
-
 #-----Main-----#
 Path = "C:/Users/Eigenaar/Desktop/PannelScanner/"
 Name = "Pannel1.jpg"
 URL = Path+Name
 
-PannelWidth = 10.1#cm
-PannelPixels = 2875
+PanelWidth = 10.1#cm
+PanelPixels = 2875
 Xmin = 1500
 Xmax = 2500
 
-Pannel1 = Pannel(URL,Xmin,Xmax,PannelWidth,PannelPixels)
-
+MainPanelSorter = PanelSorter(Xmin,Xmax,PanelWidth,PanelPixels)
 plt.show()
 #-----Main-----#
